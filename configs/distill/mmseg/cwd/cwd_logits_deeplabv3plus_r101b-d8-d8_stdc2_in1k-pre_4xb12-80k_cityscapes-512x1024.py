@@ -17,23 +17,27 @@ model = dict(
         type='ConfigurableDistiller',
         distill_losses=dict(
             loss_cwd=dict(type='ChannelWiseDivergence', tau=1, loss_weight=5),
-            loss_cwd_aug=dict(
-                type='ChannelWiseDivergence', tau=1, loss_weight=5)),
+            # loss_cwd_aug=dict(
+            #     type='ChannelWiseDivergence', tau=1, loss_weight=5)
+        ),
         student_recorders=dict(
             logits=dict(type='ModuleOutputs', source='decode_head.conv_seg'),
-            aug_logits=dict(
-                type='ModuleOutputs', source='auxiliary_head.conv_seg')),
+            # aug_logits=dict(
+            #     type='ModuleOutputs', source='auxiliary_head.conv_seg')
+        ),
         teacher_recorders=dict(
             logits=dict(type='ModuleOutputs', source='decode_head.conv_seg'),
-            aug_logits=dict(
-                type='ModuleOutputs', source='decode_head.conv_seg')),
+            # aug_logits=dict(
+            #     type='ModuleOutputs', source='decode_head.conv_seg')
+        ),
         loss_forward_mappings=dict(
             loss_cwd=dict(
                 preds_S=dict(from_student=True, recorder='logits'),
                 preds_T=dict(from_student=False, recorder='logits')),
-            loss_cwd_aug=dict(
-                preds_S=dict(from_student=True, recorder='aug_logits'),
-                preds_T=dict(from_student=False, recorder='aug_logits')))))
+            # loss_cwd_aug=dict(
+            #     preds_S=dict(from_student=True, recorder='aug_logits'),
+            #     preds_T=dict(from_student=False, recorder='aug_logits'))
+        )))
 
 find_unused_parameters = True
 
