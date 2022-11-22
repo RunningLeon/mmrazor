@@ -16,7 +16,9 @@ model = dict(
     distiller=dict(
         type='ConfigurableDistiller',
         distill_losses=dict(
-            loss_cwd=dict(type='ChannelWiseDivergence', tau=1, loss_weight=5)),
+            loss_cwd=dict(type='ChannelWiseDivergence', tau=1, loss_weight=5),
+            loss_cwd_aug=dict(
+                type='ChannelWiseDivergence', tau=1, loss_weight=5)),
         student_recorders=dict(
             logits=dict(type='ModuleOutputs', source='decode_head.conv_seg'),
             aug_logits=dict(
