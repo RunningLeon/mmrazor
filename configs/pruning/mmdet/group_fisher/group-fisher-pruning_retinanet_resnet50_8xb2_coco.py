@@ -10,16 +10,16 @@ model = dict(
     _scope_='mmrazor',
     type='GroupFisher',
     architecture=architecture,
-    batch_size=2,
     interval=10,
-    delta='acts',
+    delta='flops',
     save_ckpt_delta_thr=[0.75, 0.5, 0.25],
     mutator=dict(
-        type='ChannelMutator',
+        type='GroupFisherChannelMutator',
         parse_cfg=dict(type='ChannelAnalyzer', tracer_type='FxTracer'),
         channel_unit_cfg=dict(
             type='L1MutableChannelUnit',
-            default_args=dict(choice_mode='ratio'))),
+            default_args=dict(choice_mode='ratio')),
+        batch_size=2),
 )
 
 optim_wrapper = dict(

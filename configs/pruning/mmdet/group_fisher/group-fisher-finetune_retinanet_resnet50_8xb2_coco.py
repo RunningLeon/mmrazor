@@ -12,7 +12,7 @@ model = dict(
     architecture=architecture,
     pruning=False,
     mutator=dict(
-        type='ChannelMutator',
+        type='GroupFisherChannelMutator',
         parse_cfg=dict(type='ChannelAnalyzer', tracer_type='FxTracer'),
         channel_unit_cfg=dict(
             type='L1MutableChannelUnit',

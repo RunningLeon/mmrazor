@@ -297,15 +297,15 @@ class GroupFisherPruneAlgorithm(TestItePruneAlgorithm):
         data = self.fake_cifar_data()
 
         MUTATOR_CONFIG = dict(
-            type='ChannelMutator',
+            type='GroupFisherChannelMutator',
             parse_cfg=dict(type='ChannelAnalyzer', tracer_type='FxTracer'),
             channel_unit_cfg=dict(
                 type='L1MutableChannelUnit',
-                default_args=dict(choice_mode='ratio')))
+                default_args=dict(choice_mode='ratio')),
+            batch_size=16)
 
         epoch = 2
         interval = 1
-        batch_size = 16
 
         algorithm = GroupFisher(
             MODEL_CFG,
@@ -313,13 +313,13 @@ class GroupFisherPruneAlgorithm(TestItePruneAlgorithm):
             mutator=MUTATOR_CONFIG,
             delta='acts',
             interval=interval,
-            batch_size=batch_size,
             save_ckpt_delta_thr=[]).to(DEVICE)
+        mutator = algorithm.mutator
 
-        self.assertEqual(len(algorithm.conv_names), len(algorithm.acts))
-        self.assertEqual(len(algorithm.flops), len(algorithm.acts))
-        for flop in algorithm.flops:
-            self.assertTrue(flop in algorithm.conv_names)
+        self.assertEqual(len(mutator.conv_names), len(mutator.acts))
+        self.assertEqual(len(mutator.flops), len(mutator.acts))
+        for flop in mutator.flops:
+            self.assertTrue(flop in mutator.conv_names)
 
         for e in range(epoch):
             for ite in range(10):
@@ -327,4 +327,4 @@ class GroupFisherPruneAlgorithm(TestItePruneAlgorithm):
                 algorithm.forward(
                     data['inputs'], data['data_samples'], mode='loss')
             algorithm.delta = 'flops'
-        self.assertEqual(len(algorithm.flops), len(algorithm.acts))
+        self.assertEqual(len(mutator.flops), len(mutator.acts))
