@@ -10,6 +10,7 @@ from .l1_mutable_channel_unit import L1MutableChannelUnit
 
 @MODELS.register_module()
 class GroupFisherChannelUnit(L1MutableChannelUnit):
+    """ChannelUnit for GroupFisher Pruning Algorithm."""
 
     def find_pruned_channel(self, accum_fisher: torch.Tensor, delta: int,
                             info_min: float) -> Dict:
