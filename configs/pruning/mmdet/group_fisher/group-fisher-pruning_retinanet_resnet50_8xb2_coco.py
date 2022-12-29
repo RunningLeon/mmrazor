@@ -17,7 +17,7 @@ model = dict(
         type='GroupFisherChannelMutator',
         parse_cfg=dict(type='ChannelAnalyzer', tracer_type='FxTracer'),
         channel_unit_cfg=dict(
-            type='L1MutableChannelUnit',
+            type='GroupFisherChannelUnit',
             default_args=dict(choice_mode='ratio')),
         batch_size=2),
 )

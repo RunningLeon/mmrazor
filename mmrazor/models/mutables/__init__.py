@@ -5,6 +5,7 @@ from .mutable_channel import (BaseMutableChannel, MutableChannelContainer,
                               OneShotMutableChannel, SimpleMutableChannel,
                               SquentialMutableChannel)
 from .mutable_channel.units import (ChannelUnitType, DCFFChannelUnit,
+                                    GroupFisherChannelUnit,
                                     L1MutableChannelUnit, MutableChannelUnit,
                                     OneShotMutableChannelUnit,
                                     SequentialMutableChannelUnit,
@@ -22,5 +23,5 @@ __all__ = [
     'SimpleMutableChannel', 'MutableChannelUnit', 'SlimmableChannelUnit',
     'BaseMutableChannel', 'MutableChannelContainer', 'ChannelUnitType',
     'SquentialMutableChannel', 'OneHotMutableOP', 'OneShotMutableChannel',
-    'BaseMutable', 'DCFFChannelUnit'
+    'BaseMutable', 'DCFFChannelUnit', 'GroupFisherChannelUnit'
 ]

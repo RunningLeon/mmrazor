@@ -8,19 +8,19 @@ import torch.distributed as dist
 import torch.nn as nn
 from mmengine.logging import print_log
 
-from mmrazor.models.mutables import L1MutableChannelUnit
+from mmrazor.models.mutables import GroupFisherChannelUnit
 from mmrazor.registry import MODELS
 from .channel_mutator import ChannelMutator, ChannelUnitType
 
 
 @MODELS.register_module()
-class GroupFisherChannelMutator(ChannelMutator[L1MutableChannelUnit]):
-    """Channel mutator for GroupFisher pruning algorithm.
+class GroupFisherChannelMutator(ChannelMutator[GroupFisherChannelUnit]):
+    """Channel mutator for GroupFisher Pruning Algorithm.
 
     Args:
         channel_unit_cfg (Union[dict, Type[ChannelUnitType]], optional):
             Config of MutableChannelUnits. Defaults to
-            dict(type='L1MutableChannelUnit',
+            dict(type='GroupFisherChannelUnit',
                  default_args=dict(choice_mode='ratio')).
         parse_cfg (Dict): The config of the tracer to parse the model.
             Defaults to dict(type='ChannelAnalyzer',
@@ -31,7 +31,7 @@ class GroupFisherChannelMutator(ChannelMutator[L1MutableChannelUnit]):
 
     def __init__(self,
                  channel_unit_cfg: Union[dict, Type[ChannelUnitType]] = dict(
-                     type='L1MutableChannelUnit',
+                     type='GroupFisherChannelUnit',
                      default_args=dict(choice_mode='ratio')),
                  parse_cfg: Dict = dict(
                      type='ChannelAnalyzer',
@@ -40,7 +40,6 @@ class GroupFisherChannelMutator(ChannelMutator[L1MutableChannelUnit]):
                  batch_size: int = 2,
                  **kwargs) -> None:
         super().__init__(channel_unit_cfg, parse_cfg, **kwargs)
-
         self.batch_size = batch_size
 
     def _map_conv_name(self,
@@ -154,7 +153,12 @@ class GroupFisherChannelMutator(ChannelMutator[L1MutableChannelUnit]):
             group = unit.name
             self.temp_fisher_info[group].zero_()
 
-    def init_group_infos(self, module_dict):
+    def init_group_infos(self, module_dict: Dict) -> None:
+        """Init the containers for saving group fisher information.
+
+        Args:
+            module_dict (Dict): The `named_modules` of model's architecture.
+        """
         self.module_dict = module_dict
         self.conv_names = self._map_conv_name(module_dict)
         # The key of self.conv_inputs is conv module, and value of it
@@ -201,32 +205,6 @@ class GroupFisherChannelMutator(ChannelMutator[L1MutableChannelUnit]):
         self.init_flops_acts()
         self.init_temp_fishers()
 
-    def find_pruning_channel(self, module: Union[nn.Module,
-                                                 int], fisher: torch.Tensor,
-                             in_mask: torch.Tensor, info: Dict) -> Dict:
-        """Find the the channel of a model to pruning.
-
-        Args:
-            module (Union[nn.Module | int] ): Conv module of model or index of
-                self.group.
-            fisher(torch.Tensor): the fisher information of module's in_mask.
-            in_mask (torch.Tensor): the squeeze in_mask of modules.
-            info (Dict): store the channel of which module need to pruning.
-                module: the module has channel need to pruning.
-                channel: the index of channel need to pruning.
-                min : the value of fisher / delta.
-        """
-        module_info = {}
-        if fisher.sum() > 0 and in_mask.sum() > 0:
-            nonzero = in_mask.nonzero().view(-1)
-            fisher = fisher[nonzero]
-            min_value, argmin = fisher.min(dim=0)
-            if min_value < info['min']:
-                module_info['module'] = module
-                module_info['channel'] = nonzero[argmin]
-                module_info['min'] = min_value
-        return module_info
-
     def init_accum_fishers(self) -> None:
         """Clear accumulated fisher info."""
         for module, name in self.conv_names.items():
@@ -234,39 +212,6 @@ class GroupFisherChannelMutator(ChannelMutator[L1MutableChannelUnit]):
         for unit in self.units:
             group = unit.name
             self.accum_fishers[group].zero_()
-
-    def channel_prune(self, delta) -> None:
-        """Select the channel in model with smallest fisher / delta set
-        corresponding in_mask 0."""
-
-        info = {'module': None, 'channel': None, 'min': 1e9}
-
-        for unit in self.units:
-            group = unit.name
-            in_mask = unit.mutable_channel.current_mask
-            fisher = self.accum_fishers[group].double()
-            if delta == 'flops':
-                fisher /= float(self.flops[group] / 1e9)
-            elif delta == 'acts':
-                fisher /= float(self.acts[group] / 1e6)
-            info.update(
-                self.find_pruning_channel(group, fisher, in_mask, info))
-
-        module, channel = info['module'], info['channel']
-        for unit in self.units:
-            group = unit.name
-            if module == group:
-                cur_mask = unit.mutable_channel.current_mask
-                cur_mask[channel] = False
-                unit.mutable_channel.current_choice = cur_mask
-                self.current_unit_channel[group] -= 1
-                break
-
-        flops, acts = self.compute_flops_acts()
-        if dist.is_initialized() and dist.get_rank() == 0:
-            print_log(f'slim {module} {channel}th channel, flops {flops:.2f},'
-                      f'acts {acts:.2f}')
-        self.init_accum_fishers()
 
     def accumulate_fishers(self) -> None:
         """Accumulate all the fisher information during self.interval
@@ -326,13 +271,6 @@ class GroupFisherChannelMutator(ChannelMutator[L1MutableChannelUnit]):
                 self.temp_fisher_info[module]**2).sum(0).to(
                     module.weight.device)
 
-    def cal_group_fishers(self) -> None:
-        self.accumulate_batch_fishers()
-        if dist.is_initialized():
-            self.reduce_batch_fishers()
-        self.accumulate_fishers()
-        self.init_temp_fishers()
-
     def compute_flops_acts(self):
         """Computing the flops and activation remains."""
         flops = 0
@@ -356,3 +294,41 @@ class GroupFisherChannelMutator(ChannelMutator[L1MutableChannelUnit]):
             acts += max_act / out_channels * act_out_channels
             max_acts += max_act
         return flops / max_flops, acts / max_acts
+
+    def channel_prune(self, delta) -> None:
+        """Select the channel in model with smallest fisher / delta set
+        corresponding in_mask 0."""
+
+        info = {'module': None, 'channel': None, 'min': 1e9}
+
+        for unit in self.units:
+            group = unit.name
+            if delta == 'flops':
+                delta_info = self.flops[group]
+            elif delta == 'acts':
+                delta_info = self.acts[group]
+            unit_info = unit.find_pruned_channel(self.accum_fishers[group],
+                                                 delta_info, info['min'])
+            info.update(unit_info)
+
+        module, channel = info['module'], info['channel']
+        for unit in self.units:
+            group = unit.name
+            if module == group:
+                unit.prune(channel)
+                self.current_unit_channel[group] -= 1
+                break
+
+        flops, acts = self.compute_flops_acts()
+        if dist.is_initialized() and dist.get_rank() == 0:
+            print_log(f'slim {module} {channel}th channel, flops {flops:.2f},'
+                      f'acts {acts:.2f}')
+        self.init_accum_fishers()
+
+    def cal_group_fishers(self) -> None:
+        """Calculate the gourp fisher information."""
+        self.accumulate_batch_fishers()
+        if dist.is_initialized():
+            self.reduce_batch_fishers()
+        self.accumulate_fishers()
+        self.init_temp_fishers()
