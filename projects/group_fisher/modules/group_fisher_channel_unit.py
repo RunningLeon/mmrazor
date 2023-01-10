@@ -88,9 +88,17 @@ class GroupFisherChannelUnit(L1MutableChannelUnit):
             module = channel.module
             if isinstance(module, GroupFisherMixin):
                 module.end_record()
-        self.fisher_info.zero_()
+
+    def reset_recorded(self):
+        for channel in self.input_related + self.output_related:
+            module = channel.module
+            if isinstance(module, GroupFisherMixin):
+                module.reset_recorded()
 
     # fisher related computation
+
+    def reset_fisher_info(self):
+        self.fisher_info.zero_()
 
     @torch.no_grad()
     def update_fisher_info(self):
@@ -119,19 +127,22 @@ class GroupFisherChannelUnit(L1MutableChannelUnit):
     @torch.no_grad()
     def _fisher_of_a_module(self, module, start: int, end: int):
         assert isinstance(module, GroupFisherMixin)
-        assert (module.recorded_grad is not None
-                and module.recorded_input is not None)
-        input = module.recorded_input
-        grad_input = module.recorded_grad
-        fisher: torch.Tensor = input * grad_input
-        fisher = fisher.sum(dim=[i for i in range(2, len(fisher.shape))])
-        batch_size = fisher.shape[0]
+        assert len(module.recorded_input) > 0 and \
+            len(module.recorded_input) == len(module.recorded_grad)
+        fisher_sum: torch.Tensor = 0
+        for input, grad_input in zip(module.recorded_input,
+                                     module.recorded_grad):
+            fisher: torch.Tensor = input * grad_input
+            fisher = fisher.sum(dim=[i for i in range(2, len(fisher.shape))])
+            fisher_sum = fisher_sum + fisher
 
+        # expand to full num_channel
+        batch_size = fisher_sum.shape[0]
         mask = self.mutable_channel.current_mask.unsqueeze(0).expand(
             [batch_size, self.num_channels])
-        zeros = fisher.new_zeros([fisher.shape[0], self.num_channels])
-        fisher = zeros.masked_scatter_(mask, fisher)
-        return fisher
+        zeros = fisher_sum.new_zeros([batch_size, self.num_channels])
+        fisher_sum = zeros.masked_scatter_(mask, fisher_sum)
+        return fisher_sum
 
     @property
     def _delta_flop_of_a_channel(self):

@@ -129,7 +129,13 @@ class GroupFisherAlgorithm(BaseAlgorithm):
                 # pruning
                 if cur_iter % self.interval == 0:
                     self.mutator.try_prune()
-                    self.mutator.reset_recorded_info()
+                    self.mutator.reset_fisher_info()
+
+                    # estimate (avoid record input and grad)
+                    self.mutator.end_record_info()
+                    print_log(f'flop,{self.estimate_flop()}', )
+                    self.mutator.start_record_info()
+            self.mutator.reset_recorded_info()
 
         res = super().forward(inputs, data_samples, mode)
 

@@ -1,4 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+from typing import List
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -16,26 +18,27 @@ class GroupFisherMixin:
 
     def _init(self):
         self.handlers = []
-        self.recorded_input = None
-        self.recorded_grad = None
-        self.recorded_out_shape = None
+        self.recorded_input: List = []
+        self.recorded_grad: List = []
+        self.recorded_out_shape: List = []
 
     def forward_hook_wrapper(self):
 
-        def forward_hook(module, input, output):
-            module.recorded_out_shape = output.shape
-            module.recorded_input = input[0]
+        def forward_hook(module: GroupFisherMixin, input, output):
+            module.recorded_out_shape.append(output.shape)
+            module.recorded_input.append(input[0])
 
         return forward_hook
 
     def backward_hook_wrapper(self):
 
-        def backward_hook(module, grad_in, grad_out):
-            module.recorded_grad = grad_in[0]
+        def backward_hook(module: GroupFisherMixin, grad_in, grad_out):
+            module.recorded_grad.insert(0, grad_in[0])
 
         return backward_hook
 
     def start_record(self: torch.nn.Module):
+        self.end_record()  # ensure to run start_record only once
         self.handlers.append(
             self.register_forward_hook(self.forward_hook_wrapper()))
         self.handlers.append(
@@ -44,9 +47,11 @@ class GroupFisherMixin:
     def end_record(self):
         for handle in self.handlers:
             handle.remove()
-        self.recorded_input = None
-        self.recorded_grad = None
-        self.recorded_out_shape = None
+
+    def reset_recorded(self):
+        self.recorded_input = []
+        self.recorded_grad = []
+        self.recorded_out_shape = []
 
     @property
     def delta_flop_of_a_out_channel(self):
@@ -69,24 +74,32 @@ class GroupFisherConv2d(DynamicConv2d, GroupFisherMixin):
 
     @property
     def delta_flop_of_a_out_channel(self):
-        shape = self.recorded_out_shape
-        _, _, h, w = shape
-        in_c = self.mutable_attrs['in_channels'].current_mask.float().sum()
-        delta_flop = h * w * self.kernel_size[0] * self.kernel_size[1] * in_c
-        return delta_flop
+        delta_flop_sum = 0
+        for shape in self.recorded_out_shape:
+            _, _, h, w = shape
+            in_c = self.mutable_attrs['in_channels'].current_mask.float().sum()
+            delta_flop = h * w * self.kernel_size[0] * self.kernel_size[
+                1] * in_c
+            delta_flop_sum += delta_flop
+        return delta_flop_sum
 
     @property
     def delta_flop_of_a_in_channel(self):
-        shape = self.recorded_out_shape
-        _, out_c, h, w = shape
-        delta_flop = out_c * h * w * self.kernel_size[0] * self.kernel_size[1]
-        return delta_flop
+        delta_flop_sum = 0
+        for shape in self.recorded_out_shape:
+            _, out_c, h, w = shape
+            delta_flop = out_c * h * w * self.kernel_size[
+                0] * self.kernel_size[1]
+            delta_flop_sum += delta_flop
+        return delta_flop_sum
 
     @property
     def delta_memory_of_a_out_channel(self):
-        shape = self.recorded_out_shape
-        _, _, h, w = shape
-        return h * w
+        delta_flop_sum = 0
+        for shape in self.recorded_out_shape:
+            _, _, h, w = shape
+            delta_flop_sum += h * w
+        return delta_flop_sum
 
 
 class GroupFisherLinear(DynamicLinear, GroupFisherMixin):
@@ -98,16 +111,16 @@ class GroupFisherLinear(DynamicLinear, GroupFisherMixin):
     @property
     def delta_flop_of_a_out_channel(self):
         in_c = self.mutable_attrs['in_channels'].current_mask.float().sum()
-        return in_c
+        return in_c * len(self.recorded_out_shape)
 
     @property
     def delta_flop_of_a_in_channel(self):
         out_c = self.mutable_attrs['out_channels'].current_mask.float().sum()
-        return out_c
+        return out_c * len(self.recorded_out_shape)
 
     @property
     def delta_memory_of_a_out_channel(self):
-        return 1
+        return 1 * len(self.recorded_out_shape)
 
 
 @TASK_UTILS.register_module()

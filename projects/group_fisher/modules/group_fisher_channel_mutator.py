@@ -52,8 +52,8 @@ class GroupFisherChannelMutator(ChannelMutator[GroupFisherChannelUnit]):
             unit.end_record_fisher_info()
 
     def reset_recorded_info(self):
-        self.end_record_info()
-        self.start_record_info()
+        for unit in self.mutable_units:
+            unit.reset_recorded()
 
     # prune and update fisher
 
@@ -75,3 +75,7 @@ class GroupFisherChannelMutator(ChannelMutator[GroupFisherChannelUnit]):
     def update_fisher(self):
         for unit in self.mutable_units:
             unit.update_fisher_info()
+
+    def reset_fisher_info(self):
+        for unit in self.mutable_units:
+            unit.reset_fisher_info()
