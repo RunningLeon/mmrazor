@@ -8,7 +8,6 @@ from mmcls.structures import ClsDataSample
 from mmengine import MessageHub
 from mmengine.model import BaseModel
 
-from mmrazor.models.algorithms.pruning.group_fisher import GroupFisher
 from mmrazor.models.algorithms.pruning.ite_prune_algorithm import (
     ItePruneAlgorithm, ItePruneConfigManager)
 from mmrazor.registry import MODELS
@@ -289,42 +288,3 @@ class TestItePruneAlgorithm(unittest.TestCase):
         print(algorithm2.mutator.current_choices)
         self.assertDictEqual(algorithm.mutator.current_choices,
                              algorithm2.mutator.current_choices)
-
-
-class GroupFisherPruneAlgorithm(TestItePruneAlgorithm):
-
-    def test_group_fisher_prune(self):
-        data = self.fake_cifar_data()
-
-        MUTATOR_CONFIG = dict(
-            type='GroupFisherChannelMutator',
-            parse_cfg=dict(type='ChannelAnalyzer', tracer_type='FxTracer'),
-            channel_unit_cfg=dict(
-                type='GroupFisherChannelUnit',
-                default_args=dict(choice_mode='ratio')),
-            batch_size=16)
-
-        epoch = 2
-        interval = 1
-
-        algorithm = GroupFisher(
-            MODEL_CFG,
-            pruning=True,
-            mutator=MUTATOR_CONFIG,
-            delta='acts',
-            interval=interval,
-            save_ckpt_delta_thr=[]).to(DEVICE)
-        mutator = algorithm.mutator
-
-        self.assertEqual(len(mutator.conv_names), len(mutator.acts))
-        self.assertEqual(len(mutator.flops), len(mutator.acts))
-        for flop in mutator.flops:
-            self.assertTrue(flop in mutator.conv_names)
-
-        for e in range(epoch):
-            for ite in range(10):
-                self._set_epoch_ite(e, ite, epoch)
-                algorithm.forward(
-                    data['inputs'], data['data_samples'], mode='loss')
-            algorithm.delta = 'flops'
-        self.assertEqual(len(mutator.flops), len(mutator.acts))
