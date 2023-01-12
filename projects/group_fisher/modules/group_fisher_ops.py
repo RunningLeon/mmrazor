@@ -1,5 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -15,14 +15,16 @@ from mmrazor.registry import TASK_UTILS
 
 
 class GroupFisherMixin:
+    """The mixin class for GroupFisher ops."""
 
-    def _init(self):
-        self.handlers = []
+    def _init(self) -> None:
+        self.handlers: list = []
         self.recorded_input: List = []
         self.recorded_grad: List = []
         self.recorded_out_shape: List = []
 
     def forward_hook_wrapper(self):
+        """Wrap the hook used in forward."""
 
         def forward_hook(module: GroupFisherMixin, input, output):
             module.recorded_out_shape.append(output.shape)
@@ -31,13 +33,15 @@ class GroupFisherMixin:
         return forward_hook
 
     def backward_hook_wrapper(self):
+        """Wrap the hook used in backward."""
 
         def backward_hook(module: GroupFisherMixin, grad_in, grad_out):
             module.recorded_grad.insert(0, grad_in[0])
 
         return backward_hook
 
-    def start_record(self: torch.nn.Module):
+    def start_record(self: torch.nn.Module) -> None:
+        """Start recording information during forward and backward."""
         self.end_record()  # ensure to run start_record only once
         self.handlers.append(
             self.register_forward_hook(self.forward_hook_wrapper()))
@@ -45,10 +49,12 @@ class GroupFisherMixin:
             self.register_backward_hook(self.backward_hook_wrapper()))
 
     def end_record(self):
+        """Stop recording information during forward and backward."""
         for handle in self.handlers:
             handle.remove()
 
     def reset_recorded(self):
+        """Reset the recorded information."""
         self.recorded_input = []
         self.recorded_grad = []
         self.recorded_out_shape = []
@@ -67,13 +73,15 @@ class GroupFisherMixin:
 
 
 class GroupFisherConv2d(DynamicConv2d, GroupFisherMixin):
+    """The Dynamic Conv2d operation used in GroupFisher Algorithm."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._init()
 
     @property
-    def delta_flop_of_a_out_channel(self):
+    def delta_flop_of_a_out_channel(self) -> torch.Tensor:
+        """Calculate the summation of flops when prune an out_channel."""
         delta_flop_sum = 0
         for shape in self.recorded_out_shape:
             _, _, h, w = shape
@@ -85,6 +93,7 @@ class GroupFisherConv2d(DynamicConv2d, GroupFisherMixin):
 
     @property
     def delta_flop_of_a_in_channel(self):
+        """Calculate the summation of flops when prune an in_channel."""
         delta_flop_sum = 0
         for shape in self.recorded_out_shape:
             _, out_c, h, w = shape
@@ -95,6 +104,7 @@ class GroupFisherConv2d(DynamicConv2d, GroupFisherMixin):
 
     @property
     def delta_memory_of_a_out_channel(self):
+        """Calculate the summation of memory when prune a channel."""
         delta_flop_sum = 0
         for shape in self.recorded_out_shape:
             _, _, h, w = shape
@@ -103,6 +113,7 @@ class GroupFisherConv2d(DynamicConv2d, GroupFisherMixin):
 
 
 class GroupFisherLinear(DynamicLinear, GroupFisherMixin):
+    """The Dynamic Linear operation used in GroupFisher Algorithm."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -110,28 +121,37 @@ class GroupFisherLinear(DynamicLinear, GroupFisherMixin):
 
     @property
     def delta_flop_of_a_out_channel(self):
+        """Calculate the summation of flops when prune an out_channel."""
         in_c = self.mutable_attrs['in_channels'].current_mask.float().sum()
         return in_c * len(self.recorded_out_shape)
 
     @property
     def delta_flop_of_a_in_channel(self):
+        """Calculate the summation of flops when prune an in_channel."""
         out_c = self.mutable_attrs['out_channels'].current_mask.float().sum()
         return out_c * len(self.recorded_out_shape)
 
     @property
     def delta_memory_of_a_out_channel(self):
+        """Calculate the summation of memory when prune a channel."""
         return 1 * len(self.recorded_out_shape)
 
 
 @TASK_UTILS.register_module()
 class DynamicConv2dCounter(Conv2dCounter):
+    """The counter of GroupFisherConv2d."""
 
     @staticmethod
-    def add_count_hook(module: nn.Conv2d, input, output):
+    def add_count_hook(module: nn.Conv2d, input: Tuple[torch.Tensor],
+                       output: torch.Tensor) -> None:
+        """Count the flops and params of a DynamicConv2d.
 
-        input = input[0]
-
-        batch_size = input.shape[0]
+        Args:
+            module (nn.Conv2d): A Conv2d module.
+            input (Tuple[torch.Tensor]): Input of this module.
+            output (torch.Tensor): Output of this module.
+        """
+        batch_size = input[0].shape[0]
         output_dims = list(output.shape[2:])
 
         kernel_dims = list(module.kernel_size)
@@ -164,9 +184,11 @@ class DynamicConv2dCounter(Conv2dCounter):
 
 @TASK_UTILS.register_module()
 class GroupFisherConv2dCounter(DynamicConv2dCounter):
+    """Counter of GroupFisherConv2d."""
     pass
 
 
 @TASK_UTILS.register_module()
 class GroupFisherLinearCounter(LinearCounter):
+    """Counter of GroupFisherLinear."""
     pass

@@ -12,9 +12,9 @@ Network compression has been widely studied since it is able to reduce the memor
 
 ### Detection
 
-| Dataset | Detector  | Backbone | Baseline(mAP/Flops)  | Pruned&Finetuned(mAP/Flops) | Download                                                                                                                                                                     |
-| :-----: | :-------: | :------: | :------------------: | :-------------------------: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-|  COCO   | RetinaNet | R-50-FPN | 36.5 / 238.5 Billion |    36.3 / 119.2 Billion     | [Baseline](https://download.openmmlab.com/mmdetection/v2.0/retinanet/retinanet_r50_fpn_1x_coco/retinanet_r50_fpn_1x_coco_20200130-c2398f9e.pth)/[Pruned](<>)/[Finetuned](<>) |
+| Dataset | Detector  | Backbone | Baseline(mAP) | Pruned&Finetuned(mAP) |                                                                                    Model                                                                                     | log                        |
+| :-----: | :-------: | :------: | :-----------: | :-------------------: | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | -------------------------- |
+|  COCO   | RetinaNet | R-50-FPN |     36.5      |   36.5 (50% flops)    | [Baseline](https://download.openmmlab.com/mmdetection/v2.0/retinanet/retinanet_r50_fpn_1x_coco/retinanet_r50_fpn_1x_coco_20200130-c2398f9e.pth)/[Pruned](<>)/[Finetuned](<>) | [Prune](<>)/[Finetune](<>) |
 
 ## Citation
 

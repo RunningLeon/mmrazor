@@ -14,27 +14,24 @@ from mmrazor.models.mutables.mutable_channel.mutable_channel_container import \
 from mmrazor.models.mutables.mutable_channel.units.l1_mutable_channel_unit import \
     L1MutableChannelUnit  # noqa
 from mmrazor.registry import MODELS
-from .group_fisher_ops import (GroupFisherConv2d, GroupFisherLinear,
-                               GroupFisherMixin)
+from .group_fisher_ops import GroupFisherConv2d, GroupFisherLinear
 
 
 @MODELS.register_module()
 class GroupFisherChannelUnit(L1MutableChannelUnit):
-    """ChannelUnit for GroupFisher Pruning Algorithm."""
+    """ChannelUnit for GroupFisher Pruning Algorithm.
 
-    # init
+    Args:
+        num_channels (int): Number of channels.
+        detla_type (str): Type of delta, which is one of 'flop', 'act' or
+            'none'. Defaults to 'flop'.
+    """
 
-    def __init__(
-        self,
-        num_channels: int,
-        choice_mode='number',
-        divisor=1,
-        min_value=1,
-        min_ratio=0.9,
-        detla_type='flop',
-    ) -> None:
-        super().__init__(num_channels, choice_mode, divisor, min_value,
-                         min_ratio)
+    def __init__(self,
+                 num_channels: int,
+                 detla_type: str = 'flop',
+                 *args) -> None:
+        super().__init__(num_channels, *args)
         _fisher_info = torch.zeros([self.num_channels])
         self.register_buffer('fisher_info', _fisher_info)
         self.fisher_info: torch.Tensor
@@ -44,8 +41,12 @@ class GroupFisherChannelUnit(L1MutableChannelUnit):
         assert detla_type in ['flop', 'act', 'none']
         self.delta_type = detla_type
 
-    def prepare_for_pruning(self, model: nn.Module):
-        """Prepare for pruning, including register mutable channels."""
+    def prepare_for_pruning(self, model: nn.Module) -> None:
+        """Prepare for pruning, including register mutable channels.
+
+        Args:
+            model (nn.Module): The model need to be pruned.
+        """
         # register MutableMask
         self._replace_with_dynamic_ops(
             model, {
@@ -60,13 +61,8 @@ class GroupFisherChannelUnit(L1MutableChannelUnit):
         self._register_mutable_channel(self.mutable_channel)
 
     # prune
-
     def try_to_prune_min_fisher(self) -> bool:
-        """Prune the channel.
-
-        Args:
-            channel (int): Index of the pruned channel.
-        """
+        """Prune the channel with the minimum value of fisher information."""
         if self.mutable_channel.activated_channels > 1:
             fisher = self.normalized_fisher_info
             index = fisher.argmin()
@@ -76,57 +72,65 @@ class GroupFisherChannelUnit(L1MutableChannelUnit):
             return False
 
     # fisher information recorded
-
-    def start_record_fisher_info(self):
+    def start_record_fisher_info(self) -> None:
+        """Start recording the related fisher info of each channel."""
         for channel in self.input_related + self.output_related:
             module = channel.module
-            if isinstance(module, GroupFisherMixin):
+            if isinstance(module, GroupFisherConv2d):
                 module.start_record()
 
-    def end_record_fisher_info(self):
+    def end_record_fisher_info(self) -> None:
+        """Stop recording the related fisher info of each channel."""
         for channel in self.input_related + self.output_related:
             module = channel.module
-            if isinstance(module, GroupFisherMixin):
+            if isinstance(module, GroupFisherConv2d):
                 module.end_record()
 
-    def reset_recorded(self):
+    def reset_recorded(self) -> None:
+        """Reset the recorded info of each channel."""
         for channel in self.input_related + self.output_related:
             module = channel.module
-            if isinstance(module, GroupFisherMixin):
+            if isinstance(module, GroupFisherConv2d):
                 module.reset_recorded()
 
     # fisher related computation
-
-    def reset_fisher_info(self):
+    def reset_fisher_info(self) -> None:
+        """Reset the related fisher info."""
         self.fisher_info.zero_()
 
     @torch.no_grad()
-    def update_fisher_info(self):
+    def update_fisher_info(self) -> None:
+        """Update the fisher info of each channel."""
         for channel in self.input_related:
             module = channel.module
-            if isinstance(module, GroupFisherMixin):
+            if isinstance(module, GroupFisherConv2d):
                 batch_fisher = self.current_batch_fisher
                 self.fisher_info += batch_fisher
         if dist.is_initialized():
             dist.all_reduce(self.fisher_info)
 
     @property
-    def normalized_fisher_info(self):
-        return self._get_normalized_fisher_info(normal_type=self.delta_type)
+    def normalized_fisher_info(self) -> torch.Tensor:
+        """Get the normalized fisher info."""
+        return self._get_normalized_fisher_info(delta_type=self.delta_type)
 
     @property
-    def current_batch_fisher(self):
+    def current_batch_fisher(self) -> torch.Tensor:
+        """Accumulate the unit's fisher info of this batch."""
         with torch.no_grad():
-            fisher = 0
+            fisher: torch.Tensor = 0
             for channel in self.input_related:
-                if isinstance(channel.module, GroupFisherMixin):
-                    fisher = fisher + self._fisher_of_a_module(
-                        channel.module, channel.start, channel.end)
+                if isinstance(channel.module, GroupFisherConv2d):
+                    fisher = fisher + self._fisher_of_a_module(channel.module)
             return (fisher**2).sum(0)
 
     @torch.no_grad()
-    def _fisher_of_a_module(self, module, start: int, end: int):
-        assert isinstance(module, GroupFisherMixin)
+    def _fisher_of_a_module(self, module: GroupFisherConv2d) -> torch.Tensor:
+        """Calculate the fisher info of one module.
+
+        Args:
+            module (GroupFisherConv2d): A `GroupFisherConv2d` module.
+        """
         assert len(module.recorded_input) > 0 and \
             len(module.recorded_input) == len(module.recorded_grad)
         fisher_sum: torch.Tensor = 0
@@ -145,37 +149,44 @@ class GroupFisherChannelUnit(L1MutableChannelUnit):
         return fisher_sum
 
     @property
-    def _delta_flop_of_a_channel(self):
+    def _delta_flop_of_a_channel(self) -> torch.Tensor:
+        """Calculate the flops of a channel."""
         delta_flop = 0
         for channel in self.output_related:
-            if isinstance(channel.module, GroupFisherMixin):
+            if isinstance(channel.module, GroupFisherConv2d):
                 delta_flop += channel.module.delta_flop_of_a_out_channel
         for channel in self.input_related:
-            if isinstance(channel.module, GroupFisherMixin):
+            if isinstance(channel.module, GroupFisherConv2d):
                 delta_flop += channel.module.delta_flop_of_a_in_channel
         return delta_flop
 
     @property
-    def _delta_memory_of_a_channel(self):
+    def _delta_memory_of_a_channel(self) -> torch.Tensor:
+        """Calculate the memory of a channel."""
         delta_memory = 0
         for channel in self.output_related:
-            if isinstance(channel.module, GroupFisherMixin):
+            if isinstance(channel.module, GroupFisherConv2d):
                 delta_memory += channel.module.delta_memory_of_a_out_channel
         return delta_memory
 
-    def _get_normalized_fisher_info(self, normal_type='flop'):
+    def _get_normalized_fisher_info(self, delta_type='flop') -> torch.Tensor:
+        """Get the normalized fisher info.
+
+        Args:
+            delta_type (str): Type of delta. Defaults to 'flop'.
+        """
         fisher = self.fisher_info.double()
         mask = self.mutable_channel.current_mask
         n_mask = (1 - mask.float()).bool()
         fisher.masked_fill_(n_mask, fisher.max() + 1)
-        if normal_type == 'flop':
+        if delta_type == 'flop':
             delta_flop = self._delta_flop_of_a_channel
             fisher = fisher / (float(delta_flop) / 1e9)
-        elif normal_type == 'act':
+        elif delta_type == 'act':
             delta_memory = self._delta_memory_of_a_channel
             fisher = fisher / (delta_memory / 1e6)
-        elif normal_type == 'none':
+        elif delta_type == 'none':
             pass
         else:
-            raise NotImplementedError(normal_type)
+            raise NotImplementedError(delta_type)
         return fisher

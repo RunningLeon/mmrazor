@@ -24,7 +24,6 @@ class GroupFisherChannelMutator(ChannelMutator[GroupFisherChannelUnit]):
             Defaults to dict(type='ChannelAnalyzer',
                              demo_input=(1, 3, 224, 224),
                              tracer_type='FxTracer').
-        batch_size (int): The batch_size when pruning model. Defaults to 2.
     """
 
     def __init__(self,
@@ -41,23 +40,24 @@ class GroupFisherChannelMutator(ChannelMutator[GroupFisherChannelUnit]):
         super().__init__(channel_unit_cfg, parse_cfg, **kwargs)
         self.mutable_units: List[GroupFisherChannelUnit]
 
-    # record info related
-
-    def start_record_info(self):
+    def start_record_info(self) -> None:
+        """Start recording the related information."""
         for unit in self.mutable_units:
             unit.start_record_fisher_info()
 
-    def end_record_info(self):
+    def end_record_info(self) -> None:
+        """Stop recording the related information."""
         for unit in self.mutable_units:
             unit.end_record_fisher_info()
 
-    def reset_recorded_info(self):
+    def reset_recorded_info(self) -> None:
+        """Reset the related information."""
         for unit in self.mutable_units:
             unit.reset_recorded()
 
-    # prune and update fisher
-
-    def try_prune(self):
+    def try_prune(self) -> None:
+        """Prune the channel with the minimum fisher unless it is the last
+        channel of the current layer."""
         min_fisher = 1e5
         min_unit = self.mutable_units[0]
         for unit in self.mutable_units:
@@ -72,10 +72,12 @@ class GroupFisherChannelMutator(ChannelMutator[GroupFisherChannelUnit]):
                     f'{min_unit.name} prunes a channel with fisher = {min_fisher}'  # noqa
                 )
 
-    def update_fisher(self):
+    def update_fisher(self) -> None:
+        """Update the fisher information of each unit."""
         for unit in self.mutable_units:
             unit.update_fisher_info()
 
-    def reset_fisher_info(self):
+    def reset_fisher_info(self) -> None:
+        """Reset the fisher information of each unit."""
         for unit in self.mutable_units:
             unit.reset_fisher_info()

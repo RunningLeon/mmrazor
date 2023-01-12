@@ -5,6 +5,7 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 from mmengine import Config, MessageHub
+from mmengine.dist import master_only
 from mmengine.logging import print_log
 from mmengine.model import BaseModel
 from mmengine.runner import save_checkpoint
@@ -31,11 +32,11 @@ class GroupFisherAlgorithm(BaseAlgorithm):
         pruning (bool): When True, the model is in the pruning process, when
             False, the model is in the finetune process. Defaults to True.
         mutator (Union[Dict, ChannelMutator], optional): The config
-            of a mutator. Defaults to dict( type='ChannelMutator',
-            channel_unit_cfg=dict( type='SequentialMutableChannelUnit')).
+            of a mutator. Defaults to dict( type='GroupFisherChannelMutator',
+            channel_unit_cfg=dict( type='GroupFisherChannelUnit')).
         interval (int): The interval of  pruning two channels. Defaults to 10.
         delta (str): "acts" or "flops", prune the model by activations or
-            flops. Defaults to "acts".
+            flops. Defaults to "flops".
         save_ckpt_delta_thr (list): Checkpoint would be saved when
             the delta reached specific value in the list.
             Defaults to [0.75, 0.5, 0.25].
@@ -50,11 +51,9 @@ class GroupFisherAlgorithm(BaseAlgorithm):
                  pruning: bool = True,
                  mutator: Union[Dict, GroupFisherChannelMutator] = dict(
                      type='GroupFisherChannelMutator',
-                     channel_unit_cfg=dict(type='L1MutableChannelUnit'),
-                     batch_size=2,
-                     delta='acts'),
+                     channel_unit_cfg=dict(type='GroupFisherChannelUnit')),
                  interval: int = 10,
-                 delta: str = 'acts',
+                 delta: str = 'flops',
                  save_ckpt_delta_thr: list = [0.75, 0.5, 0.25],
                  esitmator=dict(
                      type='ResourceEstimator',
@@ -63,6 +62,19 @@ class GroupFisherAlgorithm(BaseAlgorithm):
                  init_cfg: Optional[Dict] = None) -> None:
 
         super().__init__(architecture, data_preprocessor, init_cfg)
+
+        self.pruning = pruning
+        self.interval = interval
+        self.delta = delta
+        self.save_ckpt_delta_thr = save_ckpt_delta_thr
+        self.need_restart_record_info = False
+
+        if self.pruning:
+            # resource_estimator
+            self.resource_estimator: ResourceEstimator = TASK_UTILS.build(
+                esitmator)
+            self.origin_delta = self.estimate_delta()
+
         # using sync bn or normal bn
         if dist.is_initialized():
             print_log('Convert Bn to SyncBn.')
@@ -72,29 +84,21 @@ class GroupFisherAlgorithm(BaseAlgorithm):
             from mmengine.model import revert_sync_batchnorm
             self.architecture = revert_sync_batchnorm(self.architecture)
 
-        self.pruning = pruning
-        self.interval = interval
-        self.delta = delta
-        self.save_ckpt_delta_thr = save_ckpt_delta_thr
-
         # mutator
         self.mutator: GroupFisherChannelMutator = MODELS.build(mutator)
         self.mutator.prepare_from_supernet(self.architecture)
 
-        self.resource_estimator: ResourceEstimator = TASK_UTILS.build(
-            esitmator)
-        self.origin_flops = self.estimate_flop()
-
-    def save_delta_ckpt(self, delta: float, cfg: Config) -> None:
+    @master_only
+    def save_delta_ckpt(self, delta_percent: float, cfg: Config) -> None:
         """Save checkpoint according to delta thres.
 
         Args:
-            delta (float): The value of delta.
+            delta (float): Percentage of current value to original value.
             cfg (Config): The config dictionary.
         """
         self.save_ckpt_delta_thr.pop(0)
         ckpt = {'state_dict': self.state_dict()}
-        save_path = f'{cfg.work_dir}/{self.delta}_{delta:.2f}.pth'
+        save_path = f'{cfg.work_dir}/{self.delta}_{delta_percent:.2f}.pth'
         save_checkpoint(ckpt, save_path)
         print_log(f'Save checkpoint to {save_path}')
 
@@ -119,28 +123,42 @@ class GroupFisherAlgorithm(BaseAlgorithm):
                 - ``tensor``: Called by custom use to get ``Tensor`` type
                   results.
         """
-        if self.pruning:
+        if self.training and self.pruning:
             hub = MessageHub.get_current_instance()
             cur_iter = hub.runtime_info['iter']
-            if cur_iter == 0:
+
+            if cur_iter == 0 or self.need_restart_record_info:
                 self.mutator.start_record_info()
+                self.need_restart_record_info = False
+
             if cur_iter > 0:
                 self.mutator.update_fisher()
                 # pruning
                 if cur_iter % self.interval == 0:
                     self.mutator.try_prune()
                     self.mutator.reset_fisher_info()
+                    if len(self.save_ckpt_delta_thr) > 0:
+                        # avoid recording input and grad during estimating.
+                        self.mutator.end_record_info()
+                        current_delta = self.estimate_delta()
+                        self.mutator.start_record_info()
+                        percent = current_delta / self.origin_delta
+                        if percent < self.save_ckpt_delta_thr[0]:
+                            cfg = Config.fromstring(hub.runtime_info['cfg'],
+                                                    '.py')
+                            self.save_delta_ckpt(percent, cfg)
+                self.mutator.reset_recorded_info()
 
-                    # estimate (avoid record input and grad)
-                    self.mutator.end_record_info()
-                    print_log(f'flop,{self.estimate_flop()}', )
-                    self.mutator.start_record_info()
-            self.mutator.reset_recorded_info()
+        # finetune or validation
+        else:
+            self.mutator.end_record_info()
+            self.need_restart_record_info = True
 
         res = super().forward(inputs, data_samples, mode)
 
         return res
 
-    def estimate_flop(self) -> float:
+    def estimate_delta(self):
+        """Get the current value of delta."""
         return self.resource_estimator.estimate(
-            self.architecture)['flops']  # type: ignore
+            self.architecture)[self.delta]  # type: ignore
