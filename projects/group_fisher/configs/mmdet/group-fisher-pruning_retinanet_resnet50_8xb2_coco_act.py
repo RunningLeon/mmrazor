@@ -20,7 +20,7 @@ model = dict(
     mutator=dict(
         type='GroupFisherChannelMutator',
         parse_cfg=dict(type='ChannelAnalyzer', tracer_type='FxTracer'),
-        channel_unit_cfg=dict(type='GroupFisherChannelUnit'),
+        channel_unit_cfg=dict(type='GroupFisherChannelUnit', detla_type='act'),
     ),
 )
 
@@ -28,4 +28,4 @@ optim_wrapper = dict(
     type='OptimWrapper',
     optimizer=dict(type='SGD', lr=0.002, momentum=0.9, weight_decay=0.0001))
 
-find_unused_parameters = True
+# find_unused_parameters = True
