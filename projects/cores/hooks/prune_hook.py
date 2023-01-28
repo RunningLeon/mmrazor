@@ -5,7 +5,6 @@ from mmengine.dist import master_only
 from mmengine.hooks import Hook
 from mmengine.runner import Runner, save_checkpoint
 
-from mmrazor.models import BaseAlgorithm
 from mmrazor.models.task_modules.demo_inputs import DefaultDemoInput
 from mmrazor.models.task_modules.estimators import ResourceEstimator
 from mmrazor.registry import HOOKS, TASK_UTILS
@@ -38,7 +37,8 @@ class PruningStructureHook(Hook):
     def show(self, runner):
         # print structure info
         algorithm = get_model_from_runner(runner)
-        self.show_unit_info(algorithm)
+        if is_pruning_algorithm(algorithm):
+            self.show_unit_info(algorithm)
 
     # hook points
 
@@ -82,9 +82,8 @@ class ResourceInfoHook(Hook):
         self.origin_delta = None
 
     def before_run(self, runner) -> None:
-        algorithm: BaseAlgorithm = get_model_from_runner(runner)
-        self.origin_delta = self._evaluate(
-            algorithm.architecture)[self.delta_type]
+        model = get_model_from_runner(runner)
+        self.origin_delta = self._evaluate(model)[self.delta_type]
         print_log(f'get original {self.delta_type}: {self.origin_delta}')
 
     # save checkpoint
@@ -96,14 +95,12 @@ class ResourceInfoHook(Hook):
                          outputs=None) -> None:
         if RuntimeInfo.iter() % self.interval == 0 and len(
                 self.save_ckpt_delta_thr) > 0:
-            algorithm: BaseAlgorithm = get_model_from_runner(runner)
-            if is_pruning_algorithm(algorithm):
-                current_delta = self._evaluate(
-                    algorithm.architecture)[self.delta_type]
-                percent = current_delta / self.origin_delta
-                if percent < self.save_ckpt_delta_thr[0]:
-                    self._save_checkpoint(algorithm, runner.work_dir,
-                                          self.save_ckpt_delta_thr.pop(0))
+            model = get_model_from_runner(runner)
+            current_delta = self._evaluate(model)[self.delta_type]
+            percent = current_delta / self.origin_delta
+            if percent < self.save_ckpt_delta_thr[0]:
+                self._save_checkpoint(model, runner.work_dir,
+                                      self.save_ckpt_delta_thr.pop(0))
         if self.early_stop and len(self.save_ckpt_delta_thr) == 0:
             exit()
 
@@ -111,13 +108,11 @@ class ResourceInfoHook(Hook):
 
     @master_only
     def after_train_epoch(self, runner) -> None:
-        algorithm: BaseAlgorithm = get_model_from_runner(runner)
-        if is_pruning_algorithm(algorithm):
-            current_delta = self._evaluate(
-                algorithm.architecture)[self.delta_type]
-            print_log(
-                f'current {self.delta_type}: {current_delta} / {self.origin_delta}'  # noqa
-            )
+        model = get_model_from_runner(runner)
+        current_delta = self._evaluate(model)[self.delta_type]
+        print_log(
+            f'current {self.delta_type}: {current_delta} / {self.origin_delta}'  # noqa
+        )
 
     #
 
@@ -131,10 +126,10 @@ class ResourceInfoHook(Hook):
             return res
 
     @master_only
-    def _save_checkpoint(self, algorithm, path, delta_percent):
-        ckpt = {'state_dict': algorithm.state_dict()}
+    def _save_checkpoint(self, model, path, delta_percent):
+        ckpt = {'state_dict': model.state_dict()}
         save_path = f'{path}/{self.delta_type}_{delta_percent:.2f}.pth'
         save_checkpoint(ckpt, save_path)
         print_log(
-            f'Save checkpoint to {save_path} with {self._evaluate(algorithm.architecture)}'  # noqa
+            f'Save checkpoint to {save_path} with {self._evaluate(model)}'  # noqa
         )

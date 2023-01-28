@@ -1,25 +1,19 @@
-_base_ = '../../../../models/vgg/configs/vgg_pretrain.py'
-custom_imports = dict(imports=['projects.group_fisher'])
+_base_ = './vgg_group_fisher_prune.py'
+custom_imports = dict(imports=['projects'])
 
-architecture = _base_.model
+algorithm = _base_.model
 # `pruned_path` need to be updated.
 pruned_path = './work_dirs/vgg_group_fisher_prune/flops_0.30.pth'
-architecture.update({'data_preprocessor': _base_.data_preprocessor})
-data_preprocessor = None
+algorithm.init_cfg = dict(type='Pretrained', checkpoint=pruned_path)
 
 model = dict(
     _delete_=True,
     _scope_='mmrazor',
-    type='GroupFisherAlgorithm',
-    architecture=architecture,
-    pruning=False,
-    mutator=dict(
-        type='GroupFisherChannelMutator',
-        parse_cfg=dict(type='ChannelAnalyzer', tracer_type='FxTracer'),
-        channel_unit_cfg=dict(type='GroupFisherChannelUnit')),
-    init_cfg=dict(type='Pretrained', checkpoint=pruned_path),
+    type='PruneDeployWrapper',
+    algorithm=algorithm,
 )
 
-custom_hooks = [
-    dict(type='mmrazor.PruneHook'),
-]
+# restore lr
+optim_wrapper = dict(optimizer=dict(lr=0.01))
+# remove pruning related hooks
+custom_hooks = _base_.custom_hooks[:-2]
