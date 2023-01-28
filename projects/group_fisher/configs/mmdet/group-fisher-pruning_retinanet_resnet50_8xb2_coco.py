@@ -21,12 +21,17 @@ model = dict(
     mutator=dict(
         type='GroupFisherChannelMutator',
         parse_cfg=dict(type='ChannelAnalyzer', tracer_type='FxTracer'),
-        channel_unit_cfg=dict(type='GroupFisherChannelUnit'),
+        channel_unit_cfg=dict(
+            type='GroupFisherChannelUnit',
+            detla_type='flop',
+        ),
     ),
 )
 
 model_wrapper_cfg = dict(
-    type='mmrazor.GroupFisherDDP', broadcast_buffers=False)
+    type='mmrazor.GroupFisherDDP',
+    broadcast_buffers=False,
+)
 
 optim_wrapper = dict(optimizer=dict(lr=0.002))
 
