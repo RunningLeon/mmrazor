@@ -30,16 +30,18 @@ class GroupFisherChannelUnit(L1MutableChannelUnit):
     def __init__(self,
                  num_channels: int,
                  detla_type: str = 'flop',
+                 mutate_linear=False,
                  *args) -> None:
         super().__init__(num_channels, *args)
         _fisher_info = torch.zeros([self.num_channels])
-        self.register_buffer('fisher_info', _fisher_info)
-        self.fisher_info: torch.Tensor
+        self.register_buffer('normalized_fisher_info', _fisher_info)
+        self.normalized_fisher_info: torch.Tensor
 
         self.hook_handles: List = []
-
         assert detla_type in ['flop', 'act', 'none']
         self.delta_type = detla_type
+
+        self.mutate_linear = mutate_linear
 
     def prepare_for_pruning(self, model: nn.Module) -> None:
         """Prepare for pruning, including register mutable channels.
@@ -61,17 +63,30 @@ class GroupFisherChannelUnit(L1MutableChannelUnit):
         self._register_mutable_channel(self.mutable_channel)
 
     # prune
-    def try_to_prune_min_fisher(self) -> bool:
+    def try_to_prune_min_channel(self) -> bool:
         """Prune the channel with the minimum value of fisher information."""
         if self.mutable_channel.activated_channels > 1:
-            fisher = self.normalized_fisher_info
-            index = fisher.argmin()
+            imp = self.importance()
+            index = imp.argmin()
             self.mutable_channel.mask.scatter_(0, index, 0.0)
             return True
         else:
             return False
 
+    @property
+    def is_mutable(self) -> bool:
+        mutable = super().is_mutable
+        if self.mutate_linear:
+            return mutable
+        else:
+            has_linear = False
+            for layer in self.input_related:
+                if isinstance(layer.module, nn.Linear):
+                    has_linear = True
+            return mutable and (not has_linear)
+
     # fisher information recorded
+
     def start_record_fisher_info(self) -> None:
         """Start recording the related fisher info of each channel."""
         for channel in self.input_related + self.output_related:
@@ -94,9 +109,17 @@ class GroupFisherChannelUnit(L1MutableChannelUnit):
                 module.reset_recorded()
 
     # fisher related computation
+
+    def importance(self):
+        fisher = self.normalized_fisher_info.clone()
+        mask = self.mutable_channel.current_mask
+        n_mask = (1 - mask.float()).bool()
+        fisher.masked_fill_(n_mask, fisher.max() + 1)
+        return fisher
+
     def reset_fisher_info(self) -> None:
         """Reset the related fisher info."""
-        self.fisher_info.zero_()
+        self.normalized_fisher_info.zero_()
 
     @torch.no_grad()
     def update_fisher_info(self) -> None:
@@ -107,14 +130,12 @@ class GroupFisherChannelUnit(L1MutableChannelUnit):
             if isinstance(module, GroupFisherConv2d):
                 batch_fisher = self.current_batch_fisher
                 batch_fisher_sum = batch_fisher_sum + batch_fisher
+        assert isinstance(batch_fisher_sum, torch.Tensor)
         if dist.is_initialized():
             dist.all_reduce(batch_fisher_sum)
-        self.fisher_info = self.fisher_info + batch_fisher_sum
-
-    @property
-    def normalized_fisher_info(self) -> torch.Tensor:
-        """Get the normalized fisher info."""
-        return self._get_normalized_fisher_info(delta_type=self.delta_type)
+        batch_fisher_sum = self._get_normalized_fisher_info(
+            batch_fisher_sum, self.delta_type)
+        self.normalized_fisher_info = self.normalized_fisher_info + batch_fisher_sum  # noqa
 
     @property
     def current_batch_fisher(self) -> torch.Tensor:
@@ -172,22 +193,23 @@ class GroupFisherChannelUnit(L1MutableChannelUnit):
         return delta_memory
 
     @torch.no_grad()
-    def _get_normalized_fisher_info(self, delta_type='flop') -> torch.Tensor:
+    def _get_normalized_fisher_info(self,
+                                    fisher_info,
+                                    delta_type='flop') -> torch.Tensor:
         """Get the normalized fisher info.
 
         Args:
             delta_type (str): Type of delta. Defaults to 'flop'.
         """
-        fisher = self.fisher_info.double()
-        mask = self.mutable_channel.current_mask
-        n_mask = (1 - mask.float()).bool()
-        fisher.masked_fill_(n_mask, fisher.max() + 1)
+        fisher = fisher_info.double()
         if delta_type == 'flop':
             delta_flop = self._delta_flop_of_a_channel
+            assert delta_flop > 0
             fisher = fisher / (float(delta_flop) / 1e9)
         elif delta_type == 'act':
             delta_memory = self._delta_memory_of_a_channel
-            fisher = fisher / (delta_memory / 1e6)
+            assert delta_memory > 0
+            fisher = fisher / (float(delta_memory) / 1e6)
         elif delta_type == 'none':
             pass
         else:

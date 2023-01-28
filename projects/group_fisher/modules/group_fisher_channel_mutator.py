@@ -60,33 +60,33 @@ class GroupFisherChannelMutator(ChannelMutator[GroupFisherChannelUnit]):
     def try_prune(self) -> None:
         """Prune the channel with the minimum fisher unless it is the last
         channel of the current layer."""
-        min_fisher = 1e5
+        min_imp = 1e5
         min_unit = self.mutable_units[0]
         for unit in self.mutable_units:
             if unit.mutable_channel.activated_channels > max(
                     20, (unit.num_channels * self.min_ratio)):
-                fisher_info = unit.normalized_fisher_info
-                if fisher_info.isnan().any():
+                imp = unit.importance()
+                if imp.isnan().any():
                     if dist.get_rank() == 0:
                         print_log(
-                            f'{unit.name} detects nan in fisher info, this pruning skips.'  # noqa
+                            f'{unit.name} detects nan in importance, this pruning skips.'  # noqa
                         )
                     return
-                if fisher_info.min() < min_fisher:
-                    min_fisher = fisher_info.min().item()
+                if imp.min() < min_imp:
+                    min_imp = imp.min().item()
                     min_unit = unit
-        if min_unit.try_to_prune_min_fisher():
+        if min_unit.try_to_prune_min_channel():
             if dist.get_rank() == 0:
                 print_log(
-                    f'{min_unit.name} prunes a channel with fisher = {min_fisher}'  # noqa
+                    f'{min_unit.name} prunes a channel with min imp = {min_imp}'  # noqa
                 )
 
-    def update_fisher(self) -> None:
+    def update_imp(self) -> None:
         """Update the fisher information of each unit."""
         for unit in self.mutable_units:
             unit.update_fisher_info()
 
-    def reset_fisher_info(self) -> None:
+    def reset_imp(self) -> None:
         """Reset the fisher information of each unit."""
         for unit in self.mutable_units:
             unit.reset_fisher_info()
