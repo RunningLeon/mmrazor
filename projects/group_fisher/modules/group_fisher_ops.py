@@ -52,6 +52,7 @@ class GroupFisherMixin:
         """Stop recording information during forward and backward."""
         for handle in self.handlers:
             handle.remove()
+        self.handlers = []
 
     def reset_recorded(self):
         """Reset the recorded information."""
