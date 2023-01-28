@@ -31,7 +31,7 @@ custom_hooks = [
             type='mmrazor.DefaultDemoInput',
             input_shape=[1, 3, 32, 32],
         ),
-        save_ckpt_delta_thr=[0.999, 0.8],
+        save_ckpt_delta_thr=[0.5, 0.4, 0.3],
     ),
 ]
 
