@@ -32,5 +32,6 @@ model = dict(
 
 optim_wrapper = dict(optimizer=dict(lr=0.001))  # origin 0.1
 custom_hooks = [
-    dict(type='mmrazor.PruneHook'),
+    dict(type='mmrazor.PruningStructureHook'),
+    dict(type='mmrazor.ResourceInfoHook'),
 ]
