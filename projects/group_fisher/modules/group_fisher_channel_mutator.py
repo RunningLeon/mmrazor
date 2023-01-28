@@ -36,7 +36,7 @@ class GroupFisherChannelMutator(ChannelMutator[GroupFisherChannelUnit]):
                      type='ChannelAnalyzer',
                      demo_input=(1, 3, 224, 224),
                      tracer_type='FxTracer'),
-                 min_ratio=0.2,
+                 min_ratio=0.0,
                  **kwargs) -> None:
         super().__init__(channel_unit_cfg, parse_cfg, **kwargs)
         self.mutable_units: List[GroupFisherChannelUnit]
