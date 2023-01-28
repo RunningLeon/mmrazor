@@ -27,6 +27,7 @@ custom_hooks = [
     dict(type='mmrazor.PruningStructureHook'),
     dict(
         type='mmrazor.ResourceInfoHook',
+        interval=4,
         demo_input=dict(
             type='mmrazor.DefaultDemoInput',
             input_shape=[1, 3, 32, 32],
