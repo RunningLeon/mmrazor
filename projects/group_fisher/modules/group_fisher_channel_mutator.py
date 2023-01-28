@@ -36,9 +36,11 @@ class GroupFisherChannelMutator(ChannelMutator[GroupFisherChannelUnit]):
                      type='ChannelAnalyzer',
                      demo_input=(1, 3, 224, 224),
                      tracer_type='FxTracer'),
+                 min_ratio=0.2,
                  **kwargs) -> None:
         super().__init__(channel_unit_cfg, parse_cfg, **kwargs)
         self.mutable_units: List[GroupFisherChannelUnit]
+        self.min_ratio = min_ratio
 
     def start_record_info(self) -> None:
         """Start recording the related information."""
@@ -61,8 +63,15 @@ class GroupFisherChannelMutator(ChannelMutator[GroupFisherChannelUnit]):
         min_fisher = 1e5
         min_unit = self.mutable_units[0]
         for unit in self.mutable_units:
-            if unit.mutable_channel.activated_channels > 1:
+            if unit.mutable_channel.activated_channels > max(
+                    20, (unit.num_channels * self.min_ratio)):
                 fisher_info = unit.normalized_fisher_info
+                if fisher_info.isnan().any():
+                    if dist.get_rank() == 0:
+                        print_log(
+                            f'{unit.name} detects nan in fisher info, this pruning skips.'  # noqa
+                        )
+                    return
                 if fisher_info.min() < min_fisher:
                     min_fisher = fisher_info.min().item()
                     min_unit = unit

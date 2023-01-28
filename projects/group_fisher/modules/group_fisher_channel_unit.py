@@ -101,13 +101,15 @@ class GroupFisherChannelUnit(L1MutableChannelUnit):
     @torch.no_grad()
     def update_fisher_info(self) -> None:
         """Update the fisher info of each channel."""
+        batch_fisher_sum = 0.0
         for channel in self.input_related:
             module = channel.module
             if isinstance(module, GroupFisherConv2d):
                 batch_fisher = self.current_batch_fisher
-                self.fisher_info += batch_fisher
+                batch_fisher_sum = batch_fisher_sum + batch_fisher
         if dist.is_initialized():
-            dist.all_reduce(self.fisher_info)
+            dist.all_reduce(batch_fisher_sum)
+        self.fisher_info = self.fisher_info + batch_fisher_sum
 
     @property
     def normalized_fisher_info(self) -> torch.Tensor:
@@ -169,6 +171,7 @@ class GroupFisherChannelUnit(L1MutableChannelUnit):
                 delta_memory += channel.module.delta_memory_of_a_out_channel
         return delta_memory
 
+    @torch.no_grad()
     def _get_normalized_fisher_info(self, delta_type='flop') -> torch.Tensor:
         """Get the normalized fisher info.
 
