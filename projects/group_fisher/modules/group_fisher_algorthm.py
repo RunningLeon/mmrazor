@@ -1,22 +1,16 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, Optional, Union
 
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 from mmengine.logging import print_log
-from mmengine.model import BaseModel
-from mmengine.structures import BaseDataElement
+from mmengine.model import BaseModel, MMDistributedDataParallel
 
 from mmrazor.models.algorithms.base import BaseAlgorithm
-from mmrazor.registry import MODELS
+from mmrazor.registry import MODEL_WRAPPERS, MODELS
 from ...cores.utils import RuntimeInfo  # type: ignore
 from .group_fisher_channel_mutator import GroupFisherChannelMutator
-
-LossResults = Dict[str, torch.Tensor]
-TensorResults = Union[Tuple[torch.Tensor], torch.Tensor]
-PredictResults = List[BaseDataElement]
-ForwardResults = Union[LossResults, TensorResults, PredictResults]
 
 
 @MODELS.register_module()
@@ -64,15 +58,36 @@ class GroupFisherAlgorithm(BaseAlgorithm):
 
     def train_step(self, data: Union[dict, tuple, list],
                    optim_wrapper) -> Dict[str, torch.Tensor]:
-        self.mutator.start_record_info()
+        algorithm = self
+        algorithm.mutator.start_record_info()
         res = super().train_step(data, optim_wrapper)
-        self.mutator.end_record_info()
+        algorithm.mutator.end_record_info()
 
-        self.mutator.update_imp()
-        self.mutator.reset_recorded_info()
+        algorithm.mutator.update_imp()
+        algorithm.mutator.reset_recorded_info()
 
-        if RuntimeInfo.iter() % self.interval == 0:
-            self.mutator.try_prune()
-            self.mutator.reset_imp()
+        if RuntimeInfo.iter() % algorithm.interval == 0:
+            algorithm.mutator.try_prune()
+            algorithm.mutator.reset_imp()
+
+        return res
+
+
+@MODEL_WRAPPERS.register_module()
+class GroupFisherDDP(MMDistributedDataParallel):
+
+    def train_step(self, data: Union[dict, tuple, list],
+                   optim_wrapper) -> Dict[str, torch.Tensor]:
+        algorithm = self.module
+        algorithm.mutator.start_record_info()
+        res = super().train_step(data, optim_wrapper)
+        algorithm.mutator.end_record_info()
+
+        algorithm.mutator.update_imp()
+        algorithm.mutator.reset_recorded_info()
+
+        if RuntimeInfo.iter() % algorithm.interval == 0:
+            algorithm.mutator.try_prune()
+            algorithm.mutator.reset_imp()
 
         return res

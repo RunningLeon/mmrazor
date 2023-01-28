@@ -1,5 +1,5 @@
 _base_ = 'mmdet::retinanet/retinanet_r50_fpn_1x_coco.py'
-custom_imports = dict(imports=['projects.group_fisher'])
+custom_imports = dict(imports=['projects'])
 
 architecture = _base_.model
 architecture.backbone.frozen_stages = -1
