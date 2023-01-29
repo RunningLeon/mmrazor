@@ -35,5 +35,9 @@ custom_hooks = [
         save_ckpt_delta_thr=[0.5, 0.4, 0.3],
     ),
 ]
+model_wrapper_cfg = dict(
+    type='mmrazor.GroupFisherDDP',
+    broadcast_buffers=False,
+)
 
 optim_wrapper = dict(optimizer=dict(lr=0.0001))
