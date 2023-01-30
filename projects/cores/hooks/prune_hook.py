@@ -83,8 +83,10 @@ class ResourceInfoHook(Hook):
 
     def before_run(self, runner) -> None:
         model = get_model_from_runner(runner)
-        self.origin_delta = self._evaluate(model)[self.delta_type]
-        print_log(f'get original {self.delta_type}: {self.origin_delta}')
+        original_resource = self._evaluate(model)
+        print_log(f'get original resource: {original_resource}')
+
+        self.origin_delta = original_resource[self.delta_type]
 
     # save checkpoint
 
