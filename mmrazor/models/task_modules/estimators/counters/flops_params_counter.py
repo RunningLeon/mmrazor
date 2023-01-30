@@ -4,7 +4,6 @@ from functools import partial
 from typing import Dict, List
 
 import mmcv
-import torch
 import torch.nn as nn
 
 from mmrazor.registry import TASK_UTILS
@@ -71,6 +70,7 @@ def get_model_flops_params(model,
             NOTE: If seperate_return, it will return a resource info dict with
             FLOPs & params counts of each spec module in float|string format.
     """
+
     assert type(input_shape) is tuple
     assert len(input_shape) >= 1
     assert isinstance(model, nn.Module)
@@ -85,17 +85,11 @@ def get_model_flops_params(model,
         input = input_constructor(input_shape)
         _ = flops_params_model(**input)
     else:
-        try:
-            batch = torch.ones(()).new_empty(
-                tuple(input_shape),
-                dtype=next(flops_params_model.parameters()).dtype,
-                device=next(flops_params_model.parameters()).device)
-        except StopIteration:
-            # Avoid StopIteration for models which have no parameters,
-            # like `nn.Relu()`, `nn.AvgPool2d`, etc.
-            batch = torch.ones(()).new_empty(tuple(input_shape))
-
-        _ = flops_params_model(batch)
+        from mmrazor.models.task_modules.demo_inputs import defaul_demo_inputs
+        inputs = defaul_demo_inputs(flops_params_model, input_shape, False)
+        inputs['mode'] = 'tensor'
+        tensors = inputs.pop('inputs')
+        _ = flops_params_model(tensors, **inputs)
 
     flops_count, params_count = \
         flops_params_model.compute_average_flops_params_cost()

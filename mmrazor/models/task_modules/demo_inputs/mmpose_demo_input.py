@@ -22,9 +22,9 @@ except ImportError:
 
 
 def demo_mmpose_inputs(model, for_training=False, batch_size=1):
-
+    batch_size = 2
     input_shape = (
-        1,
+        2,
         3,
     ) + model.head.decoder.input_size
     imgs = torch.randn(*input_shape)
@@ -105,7 +105,14 @@ def demo_mmpose_inputs(model, for_training=False, batch_size=1):
                 with_reg_label=True)
         ]
     else:
-        raise AssertionError('Head Type is Not Predefined')
+        # batch_size=2
+
+        batch_data_samples = get_packed_inputs(
+            batch_size,
+            num_keypoints=model.head.out_channels,
+            simcc_split_ratio=model.head.decoder.simcc_split_ratio,
+            input_size=model.head.decoder.input_size,
+            with_simcc_label=True)['data_samples']
 
     mm_inputs = {
         'inputs': torch.FloatTensor(imgs),
