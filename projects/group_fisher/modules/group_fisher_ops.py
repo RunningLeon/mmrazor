@@ -84,7 +84,8 @@ class GroupFisherConv2d(DynamicConv2d, GroupFisherMixin):
         delta_flop_sum = 0
         for shape in self.recorded_out_shape:
             _, _, h, w = shape
-            in_c = self.mutable_attrs['in_channels'].current_mask.float().sum()
+            in_c = int(self.mutable_attrs['in_channels'].current_mask.float().
+                       sum().item())
             delta_flop = h * w * self.kernel_size[0] * self.kernel_size[
                 1] * in_c
             delta_flop_sum += delta_flop
